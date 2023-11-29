@@ -14,18 +14,22 @@ def background_subtract(curr, prev):
 
 
 def main():
-    vis = o3d.visualization.Visualizer()
-    vis.create_window()
-    starting_id = 146
+    #vis = o3d.visualization.Visualizer()
+    #vis.create_window()
+    num_cars = 6
+    starting_index = 0
+    ending_index = 499
+    starting_id = 146 # He used this in the CSV
     file_header = ['vehicle_id','position_x','position_y','position_z','mvec_x','mvec_y','mvec_z','bbox_x_min','bbox_x_max','bbox_y_min','bbox_y_max','bbox_z_min','bbox_z_max']
     ground_threshold = 0.2
     height_threshold = 3
     min_points = 2
-    clustering_epsilon = 2.2
+    clustering_epsilon = 2
     directory_path = os.path.join(os.getcwd(), 'dataset', 'PointClouds')
     prev = None
+    stable_flag = False
     prev_cluster = None
-    for i in range(500):
+    for i in range(starting_index, ending_index + 1):
         file_path = os.path.join(directory_path, f'{i}.pcd')
         pointcloud = o3d.io.read_point_cloud(file_path)
         # First handle background subtraction
@@ -41,15 +45,17 @@ def main():
         max_label = labels.max()
         # Debug statement to view number of clusters
         print(f"{i} has {max_label + 1} clusters")
-        if prev is not None: vis.remove_geometry(prev)
-        vis.poll_events()
-        vis.update_renderer()
-        vis.add_geometry(filtered_pcd)
+
+        #if prev is not None: vis.remove_geometry(prev)
+        #vis.poll_events()
+        #vis.update_renderer()
+        #vis.add_geometry(filtered_pcd)
         clusters = []
         midpoints = []
         csv_row = []
-        # Include this for now, hopefully we can figure out tracking on other frames
-        if i == 3:
+        # Include this for now, so that we start processing when we have the first stable frame (if he grades it with another set of pointclouds)
+        if max_label + 1 == num_cars and stable_flag is False:
+            stable_flag = True
             with open(f'frame_{i}.csv', 'w', newline='') as csv_file:
                 csv_writer = csv.writer(csv_file)
                 csv_writer.writerow(file_header)
@@ -69,7 +75,7 @@ def main():
                 midpoints = sorted(midpoints, key=lambda point: point[0])
                 curr_id = starting_id
                 #csv_writer.writerow()
-            #o3d.visualization.draw_geometries([filtered_pcd])
+        o3d.visualization.draw_geometries([filtered_pcd])
     
 if __name__ == '__main__':
     main()
