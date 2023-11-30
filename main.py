@@ -59,7 +59,7 @@ def main():
     directory_path = os.path.join(os.getcwd(), 'dataset', 'PointClouds')
     prev = None
     stable_flag = False
-    prev_cluster = None
+    prev_midpoints = None
     for i in range(starting_index, ending_index + 1):
         file_path = os.path.join(directory_path, f'{i}.pcd')
         pointcloud = o3d.io.read_point_cloud(file_path)
@@ -130,7 +130,15 @@ def main():
                     csv_writer.writerow([curr_id, midpoint[0], midpoint[1], midpoint[2], 0, 0, 0, bbox_x_min, bbox_x_max, bbox_y_min, bbox_y_max, bbox_z_min, bbox_z_max])
                     clusters.append(this_cluster)
                     midpoints.append((curr_id, midpoint))
-                # print(midpoints)
+                prev_midpoints = midpoints
+            for j in range(starting_index, i):
+                with open(f'perception_results/frame_{i}.csv', 'r', newline='') as csv_file:
+                    with open(f'perception_results/frame_{j}.csv', 'w', newline='') as old_csv_file:
+                        reader = csv.reader(csv_file)
+                        prev_data = list(reader)
+                        writer = csv.writer(old_csv_file)
+                        writer.writerows(prev_data)
+
         if stable_flag:
                 for j in range(num_cars-1, -1, -1):
                     this_cluster = []
