@@ -3,9 +3,6 @@ import numpy as np
 import open3d as o3d
 import os
 
-# TODO Set me to False before turning in
-SHOW_EVERYTHING = True # Debugging feature to help give each cluster more context in the total point cloud
-
 # A set of distinct colors to distinguish different clusters
 CLUSTER_COLORS = np.array([
     [1.,0.,0.], # Red
@@ -44,19 +41,9 @@ def background_subtract(curr, prev):
         return curr.select_by_index(ind)
     return curr
 
-def color_clusters(labels):
-    colors = np.zeros((labels.size, 3), dtype=np.float64)
-    for i in range(labels.size):
-        label = labels[i]+1 # Add 1 to account for '-1' labels
-        index = label % CLUSTER_COLORS.shape[0]
-        colors[i] = CLUSTER_COLORS[index-1]
-        darkness = label // CLUSTER_COLORS.shape[0] # If there are more clusters than colors, slightly darken duplicate colors to distinguish them
-        colors[i] = colors[i] - (colors[i] / max(1, CLUSTER_COLORS.shape[0] - darkness + 1))
-    return colors
-
 def main():
-    #vis = o3d.visualization.Visualizer()
-    #vis.create_window()
+    vis = o3d.visualization.Visualizer()
+    vis.create_window()
     prev = None
     stable_flag = False
     prev_midpoints = None
@@ -74,23 +61,15 @@ def main():
         filtered_pcd.points = o3d.utility.Vector3dVector(filtered_points)
         labels = np.array(filtered_pcd.cluster_dbscan(CLUSTERING_EPSILON, MIN_POINTS))
         max_label = labels.max()
-        # print(labels)
-        filtered_pcd.colors = o3d.utility.Vector3dVector(color_clusters(labels))
-        if SHOW_EVERYTHING:
-            total_points = np.concatenate((np.asarray(filtered_pcd.points), np.asarray(pointcloud.points)), axis=0)
-            total_colors = np.concatenate((np.asarray(filtered_pcd.colors), np.zeros((np.asarray(pointcloud.points).shape[0], 3), dtype=np.float64)), axis=0)
-            total_pcd = o3d.geometry.PointCloud()
-            total_pcd.points = o3d.utility.Vector3dVector(total_points)
-            total_pcd.colors = o3d.utility.Vector3dVector(total_colors)
         
+        cluster_bboxes = []
+        cluster_pcds = []
+        # print(labels)
         
         # Debug statement to view number of clusters
         print(f"Frame {i} has {max_label + 1} clusters")
 
-        #if prev is not None: vis.remove_geometry(prev)
-        #vis.poll_events()
-        #vis.update_renderer()
-        #vis.add_geometry(filtered_pcd)
+        clusters = {}
         midpoints = {}
         mvecs = {}
         bboxes = {}
@@ -118,6 +97,17 @@ def main():
                     y_max = max(point[1] for point in this_cluster)
                     z_max = max(point[2] for point in this_cluster)
                     
+                    # Create colored point cloud and bounding box to display later
+                    cluster_cloud = o3d.geometry.PointCloud()
+                    cluster_cloud.points = o3d.utility.Vector3dVector(this_cluster)
+                    cluster_cloud.paint_uniform_color(CLUSTER_COLORS[j])
+                    
+                    cluster_bbox = cluster_cloud.get_axis_aligned_bounding_box()
+                    cluster_bbox.color = CLUSTER_COLORS[j]
+                    
+                    cluster_pcds.append(cluster_cloud)
+                    cluster_bboxes.append(cluster_bbox)
+                    clusters[curr_id] = this_cluster
 
                     midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
                     bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
@@ -133,6 +123,7 @@ def main():
                 prev_midpoints = midpoints
                 prev_mvecs = mvecs
                 prev_bboxes = bboxes
+                prev_clusters = clusters
             for j in range(STARTING_INDEX, i):
                 with open(f'perception_results/frame_{i}.csv', 'r', newline='') as csv_file:
                     with open(f'perception_results/frame_{j}.csv', 'w', newline='') as old_csv_file:
@@ -148,12 +139,14 @@ def main():
                 
                 raw_midpoints = []
                 raw_bboxes = []
+                raw_clusters = []
                 for j in range(max_label+1):
                     this_cluster = []
                     for k in range(len(labels)):
                         if j == labels[k]:
                             this_cluster.append([filtered_points[k][0], filtered_points[k][1], filtered_points[k][2]])
                     num_points = len(this_cluster)
+                    
                     if num_points != 0: # If cluster is empty, ignore it
                         x_sum = sum(point[0] for point in this_cluster)
                         y_sum = sum(point[1] for point in this_cluster)
@@ -165,11 +158,10 @@ def main():
                         y_max = max(point[1] for point in this_cluster)
                         z_max = max(point[2] for point in this_cluster)
                         
-
                         raw_midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
                         raw_midpoints.append(np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points)))
                         raw_bboxes.append(np.asarray((raw_midpoint[0] - x_min, x_max - raw_midpoint[0],raw_midpoint[1] - y_min, y_max - raw_midpoint[1], raw_midpoint[2] - z_min, z_max - raw_midpoint[2])))
-                        
+                        raw_clusters.append(this_cluster)
                         #print(bbox_z_max)
                         #print(bbox_z_min)
                 
@@ -179,6 +171,7 @@ def main():
                         midpoint = est
                         mvec = prev_mvecs[est_id]
                         bbox = prev_bboxes[est_id]
+                        cluster_data = prev_clusters[est_id]
                     else:
                         bbox_diffs = np.asarray([np.linalg.norm(r - prev_bboxes[est_id]) for r in raw_bboxes])
                         min_bbox = np.argmin(bbox_diffs)
@@ -190,29 +183,56 @@ def main():
                             midpoint = raw_midpoints[min_bbox]
                             mvec = midpoint - prev_midpoints[est_id]
                             bbox = raw_bboxes[min_bbox]
-                            
+                            cluster_data = raw_clusters[min_bbox]
+
                             # Once a cluster is chosen, remove it from the pool to prevent duplicates
                             raw_midpoints.pop(min_bbox)
                             raw_bboxes.pop(min_bbox)
+                            raw_clusters.pop(min_bbox)
                         else: # If no clusters match, just estimate where the car should be
                             # print(f"No suitable match for Vehicle {est_id} found. {bbox_diffs[min_bbox]} > {ERROR_MARGIN}")
                             # print(f"\tBounding box diffs: {bbox_diffs}")
                             midpoint = est
                             mvec = prev_mvecs[est_id]
                             bbox = prev_bboxes[est_id]
+                            cluster_data = prev_clusters[est_id]
+                            
+                    # Create colored point cloud and bounding box to display later
+                    cluster_cloud = o3d.geometry.PointCloud()
+                    cluster_cloud.points = o3d.utility.Vector3dVector(cluster_data)
+                    cluster_cloud.paint_uniform_color(CLUSTER_COLORS[est_id - STARTING_ID])
+                    
+                    cluster_bbox = cluster_cloud.get_axis_aligned_bounding_box()
+                    cluster_bbox.color = CLUSTER_COLORS[est_id - STARTING_ID]
+                    
+                    cluster_pcds.append(cluster_cloud)
+                    cluster_bboxes.append(cluster_bbox)
+                    
                     csv_writer.writerow([est_id, midpoint[0], midpoint[1], midpoint[2], mvec[0], mvec[1], mvec[1], bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]])
                     midpoints[est_id] = midpoint
                     mvecs[est_id] = mvec
                     bboxes[est_id] = bbox
+                    clusters[est_id] = cluster_data
                     # This is where we would try thge algo I talked about 
                     
                 prev_midpoints = midpoints
                 prev_mvecs = mvecs
                 prev_bboxes = bboxes
+                prev_clusters = clusters
                     
             
-        if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
-        else: o3d.visualization.draw_geometries([filtered_pcd])
+        # o3d.visualization.draw_geometries([filtered_pcd])
+        vis.clear_geometries()
+        for cloud in cluster_pcds:
+            vis.add_geometry(cloud)
+        for bbox in cluster_bboxes:
+            vis.add_geometry(bbox)
+        vis.poll_events()
+        vis.update_renderer()
+        
+        # Clean up point clouds once they're rendered
+        cluster_pcds.clear()
+        cluster_bboxes.clear()
     
 if __name__ == '__main__':
     main()
