@@ -53,7 +53,6 @@ def main():
     ending_index = 499
     starting_id = 141 # He used this in the CSV
     file_header = ['vehicle_id','position_x','position_y','position_z','mvec_x','mvec_y','mvec_z','bbox_x_min','bbox_x_max','bbox_y_min','bbox_y_max','bbox_z_min','bbox_z_max']
-    ground_threshold = 0.2
     height_threshold = 3
     min_points = 2
     clustering_epsilon = 2
@@ -69,7 +68,7 @@ def main():
         # Then, use height thresholding to get rid of any points not belonging to cars
         points = np.asarray(result.points)
         filtered_points = points[points[:, 2] <= height_threshold]
-        filtered_points = filtered_points[filtered_points[:, 2] >= ground_threshold]
+        
         prev = pointcloud
         filtered_pcd = o3d.geometry.PointCloud()
         filtered_pcd.points = o3d.utility.Vector3dVector(filtered_points)
@@ -110,13 +109,27 @@ def main():
                     x_sum = sum(point[0] for point in this_cluster)
                     y_sum = sum(point[1] for point in this_cluster)
                     z_sum = sum(point[2] for point in this_cluster)
+                    x_min = min(point[0] for point in this_cluster)
+                    y_min = min(point[1] for point in this_cluster)
+                    z_min = min(point[2] for point in this_cluster)
+                    x_max = max(point[0] for point in this_cluster)
+                    y_max = max(point[1] for point in this_cluster)
+                    z_max = max(point[2] for point in this_cluster)
+                    
 
                     midpoint = (x_sum / num_points, y_sum / num_points, z_sum / num_points)
+                    bbox_x_max = x_max - midpoint[0]
+                    bbox_x_min = midpoint[0] - x_min
+                    bbox_y_max = y_max - midpoint[1]
+                    bbox_y_min = midpoint[1] - y_min
+                    bbox_z_max = z_max - midpoint[2]
+                    bbox_z_min = midpoint[2] - z_min
+                    #print(bbox_z_max)
+                    #print(bbox_z_min)
                     curr_id = starting_id + j
-                    csv_writer.writerow([curr_id, midpoint[0], midpoint[1], midpoint[2], 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                    csv_writer.writerow([curr_id, midpoint[0], midpoint[1], midpoint[2], 0, 0, 0, bbox_x_min, bbox_x_max, bbox_y_min, bbox_y_max, bbox_z_min, bbox_z_max])
                     clusters.append(this_cluster)
-                    midpoints.append(midpoint)
-                midpoints = sorted(midpoints, key=lambda point: point[0])
+                    midpoints.append((curr_id, midpoint))
                 # print(midpoints)
             
         if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
