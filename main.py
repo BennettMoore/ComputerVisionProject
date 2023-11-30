@@ -142,6 +142,7 @@ def main():
                     y_sum = sum(point[1] for point in this_cluster)
                     z_sum = sum(point[2] for point in this_cluster)
                     midpoint = (x_sum / num_points, y_sum / num_points, z_sum / num_points)
+                    # This is where we would try thge algo I talked about 
             
         if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
         else: o3d.visualization.draw_geometries([filtered_pcd])
