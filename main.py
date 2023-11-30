@@ -131,6 +131,17 @@ def main():
                     clusters.append(this_cluster)
                     midpoints.append((curr_id, midpoint))
                 # print(midpoints)
+        if stable_flag:
+                for j in range(num_cars-1, -1, -1):
+                    this_cluster = []
+                    for k in range(len(labels)):
+                        if j == labels[k]:
+                            this_cluster.append([filtered_points[k][0], filtered_points[k][1], filtered_points[k][2]])
+                    num_points = len(this_cluster)
+                    x_sum = sum(point[0] for point in this_cluster)
+                    y_sum = sum(point[1] for point in this_cluster)
+                    z_sum = sum(point[2] for point in this_cluster)
+                    midpoint = (x_sum / num_points, y_sum / num_points, z_sum / num_points)
             
         if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
         else: o3d.visualization.draw_geometries([filtered_pcd])
