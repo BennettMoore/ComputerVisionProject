@@ -28,10 +28,12 @@ STARTING_INDEX = 0
 ENDING_INDEX = 499
 STARTING_ID = 141 # He used this in the CSV
 FILE_HEADER = ['vehicle_id','position_x','position_y','position_z','mvec_x','mvec_y','mvec_z','bbox_x_min','bbox_x_max','bbox_y_min','bbox_y_max','bbox_z_min','bbox_z_max']
-HEIGHT_THRESHOLD = 3
+HEIGHT_THRESHOLD = 4
 MIN_POINTS = 2
 CLUSTERING_EPSILON = 2
+ERROR_MARGIN = 1.
 DIR_PATH = os.path.join(os.getcwd(), 'dataset', 'PointClouds')
+
 
 def background_subtract(curr, prev):
     min_distance = 0.001
@@ -55,7 +57,6 @@ def color_clusters(labels):
 def main():
     #vis = o3d.visualization.Visualizer()
     #vis.create_window()
-
     prev = None
     stable_flag = False
     prev_midpoints = None
@@ -120,6 +121,8 @@ def main():
 
                     midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
                     bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
+                    midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
+                    bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
                     #print(bbox_z_max)
                     #print(bbox_z_min)
                     
@@ -142,18 +145,16 @@ def main():
             with open(f'perception_results/frame_{i}.csv', 'w', newline='') as csv_file:
                 csv_writer = csv.writer(csv_file)
                 csv_writer.writerow(FILE_HEADER)
-                for j in range(NUM_CARS-1, -1, -1):
+                
+                raw_midpoints = []
+                raw_bboxes = []
+                for j in range(max_label+1):
                     this_cluster = []
                     for k in range(len(labels)):
                         if j == labels[k]:
                             this_cluster.append([filtered_points[k][0], filtered_points[k][1], filtered_points[k][2]])
                     num_points = len(this_cluster)
-                    curr_id = STARTING_ID + j
-                    if num_points == 0: # Couldn't find cluster this time, so guess based on past info
-                        midpoint = prev_midpoints[curr_id] + prev_mvecs[curr_id]
-                        mvec = prev_mvecs[curr_id]
-                        bbox = prev_bboxes[curr_id]
-                    else:    
+                    if num_points != 0: # If cluster is empty, ignore it
                         x_sum = sum(point[0] for point in this_cluster)
                         y_sum = sum(point[1] for point in this_cluster)
                         z_sum = sum(point[2] for point in this_cluster)
@@ -165,18 +166,44 @@ def main():
                         z_max = max(point[2] for point in this_cluster)
                         
 
-                        midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
-                        bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
-                        
-                        mvec = midpoint - prev_midpoints[curr_id]
+                        raw_midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
+                        raw_midpoints.append(np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points)))
+                        raw_bboxes.append(np.asarray((raw_midpoint[0] - x_min, x_max - raw_midpoint[0],raw_midpoint[1] - y_min, y_max - raw_midpoint[1], raw_midpoint[2] - z_min, z_max - raw_midpoint[2])))
                         
                         #print(bbox_z_max)
                         #print(bbox_z_min)
+                
+                # Use previous frame's positions to estimate where each car should be
+                for est_id, est in prev_midpoints.items():
+                    if len(raw_midpoint) == 0 or len(raw_bboxes) == 0: # No clusters left, so just estimate
+                        midpoint = est
+                        mvec = prev_mvecs[est_id]
+                        bbox = prev_bboxes[est_id]
+                    else:
+                        bbox_diffs = np.asarray([np.linalg.norm(r - prev_bboxes[est_id]) for r in raw_bboxes])
+                        min_bbox = np.argmin(bbox_diffs)
                         
-                    csv_writer.writerow([curr_id, midpoint[0], midpoint[1], midpoint[2], mvec[0], mvec[1], mvec[1], bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]])
-                    midpoints[curr_id] = midpoint
-                    mvecs[curr_id] = mvec
-                    bboxes[curr_id] = bbox
+                        # Use Bounding Box dimensions to identify each car since they remain fairly constant
+                        if bbox_diffs[min_bbox] <= ERROR_MARGIN:
+                            # print(f"Suitable match for Vehicle {est_id} found! {bbox_diffs[min_bbox]} <= {ERROR_MARGIN}")
+                            # print(f"\tBounding box diffs: {bbox_diffs}")
+                            midpoint = raw_midpoints[min_bbox]
+                            mvec = midpoint - prev_midpoints[est_id]
+                            bbox = raw_bboxes[min_bbox]
+                            
+                            # Once a cluster is chosen, remove it from the pool to prevent duplicates
+                            raw_midpoints.pop(min_bbox)
+                            raw_bboxes.pop(min_bbox)
+                        else: # If no clusters match, just estimate where the car should be
+                            # print(f"No suitable match for Vehicle {est_id} found. {bbox_diffs[min_bbox]} > {ERROR_MARGIN}")
+                            # print(f"\tBounding box diffs: {bbox_diffs}")
+                            midpoint = est
+                            mvec = prev_mvecs[est_id]
+                            bbox = prev_bboxes[est_id]
+                    csv_writer.writerow([est_id, midpoint[0], midpoint[1], midpoint[2], mvec[0], mvec[1], mvec[1], bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]])
+                    midpoints[est_id] = midpoint
+                    mvecs[est_id] = mvec
+                    bboxes[est_id] = bbox
                     # This is where we would try thge algo I talked about 
                     
                 prev_midpoints = midpoints
@@ -184,8 +211,8 @@ def main():
                 prev_bboxes = bboxes
                     
             
-        # if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
-        # else: o3d.visualization.draw_geometries([filtered_pcd])
+        if SHOW_EVERYTHING: o3d.visualization.draw_geometries([total_pcd])
+        else: o3d.visualization.draw_geometries([filtered_pcd])
     
 if __name__ == '__main__':
     main()
