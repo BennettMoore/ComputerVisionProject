@@ -82,9 +82,6 @@ def main():
         labels = np.array(filtered_pcd.cluster_dbscan(CLUSTERING_EPSILON, MIN_POINTS))
         max_label = labels.max()
         
-        
-        # print(labels)
-        
         # Debug statement to view number of clusters
         print(f"Frame {i} has {max_label + 1} clusters")
 
@@ -133,8 +130,6 @@ def main():
                     bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
                     midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
                     bbox = np.asarray((midpoint[0] - x_min, x_max - midpoint[0],midpoint[1] - y_min, y_max - midpoint[1], midpoint[2] - z_min, z_max - midpoint[2]))
-                    #print(bbox_z_max)
-                    #print(bbox_z_min)
                     
                     csv_writer.writerow([curr_id, midpoint[0], midpoint[1], midpoint[2], 0., 0., 0., bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]])
                     midpoints[curr_id] = midpoint
@@ -184,8 +179,6 @@ def main():
                         raw_midpoints.append(np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points)))
                         raw_bboxes.append(np.asarray((raw_midpoint[0] - x_min, x_max - raw_midpoint[0],raw_midpoint[1] - y_min, y_max - raw_midpoint[1], raw_midpoint[2] - z_min, z_max - raw_midpoint[2])))
                         raw_clusters.append(this_cluster)
-                        #print(bbox_z_max)
-                        #print(bbox_z_min)
                 
                 # Use previous frame's positions to estimate where each car should be
                 for est_id, est in prev_midpoints.items():
@@ -200,8 +193,6 @@ def main():
                         
                         # Use Bounding Box dimensions to identify each car since they remain fairly constant
                         if bbox_diffs[min_bbox] <= ERROR_MARGIN:
-                            # print(f"Suitable match for Vehicle {est_id} found! {bbox_diffs[min_bbox]} <= {ERROR_MARGIN}")
-                            # print(f"\tBounding box diffs: {bbox_diffs}")
                             midpoint = raw_midpoints[min_bbox]
                             mvec = midpoint - prev_midpoints[est_id]
                             bbox = raw_bboxes[min_bbox]
@@ -212,8 +203,6 @@ def main():
                             raw_bboxes.pop(min_bbox)
                             raw_clusters.pop(min_bbox)
                         else: # If no clusters match, just estimate where the car should be
-                            # print(f"No suitable match for Vehicle {est_id} found. {bbox_diffs[min_bbox]} > {ERROR_MARGIN}")
-                            # print(f"\tBounding box diffs: {bbox_diffs}")
                             midpoint = est
                             mvec = prev_mvecs[est_id]
                             bbox = prev_bboxes[est_id]
@@ -235,7 +224,6 @@ def main():
                     mvecs[est_id] = mvec
                     bboxes[est_id] = bbox
                     clusters[est_id] = cluster_data
-                    # This is where we would try thge algo I talked about 
                     
                 prev_midpoints = midpoints
                 prev_mvecs = mvecs
