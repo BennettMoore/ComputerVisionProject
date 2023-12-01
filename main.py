@@ -1,7 +1,13 @@
+"""
+CSCI 431 Final Project: Design, and Implementation of a Perception Stack for Autonomous Driving
+Authors: Bennett Moore & John West
+Date: 12/01/2023
+"""
 import csv
 import numpy as np
 import open3d as o3d
 import os
+import time
 
 # A set of distinct colors to distinguish different clusters
 CLUSTER_COLORS = np.array([
@@ -33,6 +39,15 @@ DIR_PATH = os.path.join(os.getcwd(), 'dataset', 'PointClouds')
 
 
 def background_subtract(curr, prev):
+    """Subtracts the background from the current frame
+
+    Args:
+        curr (PointCloud): The current frame of the LIDAR
+        prev (PointCloud?): The previous frame of the LIDAR, or None if it's the first frame
+
+    Returns:
+        PointCloud: The current frame of the LIDAR with its background removed
+    """
     min_distance = 0.001
     if prev is not None:
         distances = curr.compute_point_cloud_distance(prev)
@@ -47,6 +62,11 @@ def main():
     prev = None
     stable_flag = False
     prev_midpoints = None
+    prev_time = time.time()
+    
+    cluster_bboxes = np.full((NUM_CARS), o3d.geometry.PointCloud())
+    cluster_pcds = np.full((NUM_CARS), o3d.geometry.PointCloud())
+    
     for i in range(STARTING_INDEX, ENDING_INDEX + 1):
         file_path = os.path.join(DIR_PATH, f'{i}.pcd')
         pointcloud = o3d.io.read_point_cloud(file_path)
@@ -62,8 +82,7 @@ def main():
         labels = np.array(filtered_pcd.cluster_dbscan(CLUSTERING_EPSILON, MIN_POINTS))
         max_label = labels.max()
         
-        cluster_bboxes = []
-        cluster_pcds = []
+        
         # print(labels)
         
         # Debug statement to view number of clusters
@@ -73,7 +92,8 @@ def main():
         midpoints = {}
         mvecs = {}
         bboxes = {}
-        # Include this for now, so that we start processing when we have the first stable frame (if he grades it with another set of pointclouds)
+        
+        # Don't begin processing frame data until you find a "stable" frame to use as a reference point
         if max_label + 1 == NUM_CARS and stable_flag is False:
             stable_flag = True
             with open(f'perception_results/frame_{i}.csv', 'w', newline='') as csv_file:
@@ -105,8 +125,8 @@ def main():
                     cluster_bbox = cluster_cloud.get_axis_aligned_bounding_box()
                     cluster_bbox.color = CLUSTER_COLORS[j]
                     
-                    cluster_pcds.append(cluster_cloud)
-                    cluster_bboxes.append(cluster_bbox)
+                    cluster_pcds[j] = cluster_cloud
+                    cluster_bboxes[j] = cluster_bbox
                     clusters[curr_id] = this_cluster
 
                     midpoint = np.asarray((x_sum / num_points, y_sum / num_points, z_sum / num_points))
@@ -124,6 +144,7 @@ def main():
                 prev_mvecs = mvecs
                 prev_bboxes = bboxes
                 prev_clusters = clusters
+            # Backfill any unstable frames that had to be skipped now that all cars have been identified
             for j in range(STARTING_INDEX, i):
                 with open(f'perception_results/frame_{i}.csv', 'r', newline='') as csv_file:
                     with open(f'perception_results/frame_{j}.csv', 'w', newline='') as old_csv_file:
@@ -132,7 +153,8 @@ def main():
                         writer = csv.writer(old_csv_file)
                         writer.writerows(prev_data)
 
-        if stable_flag:
+        # Once a stable frame has been found, you can estimate where all cars are even if not all are visible
+        elif stable_flag:
             with open(f'perception_results/frame_{i}.csv', 'w', newline='') as csv_file:
                 csv_writer = csv.writer(csv_file)
                 csv_writer.writerow(FILE_HEADER)
@@ -205,8 +227,8 @@ def main():
                     cluster_bbox = cluster_cloud.get_axis_aligned_bounding_box()
                     cluster_bbox.color = CLUSTER_COLORS[est_id - STARTING_ID]
                     
-                    cluster_pcds.append(cluster_cloud)
-                    cluster_bboxes.append(cluster_bbox)
+                    cluster_pcds[est_id - STARTING_ID] = cluster_cloud
+                    cluster_bboxes[est_id - STARTING_ID] = cluster_bbox
                     
                     csv_writer.writerow([est_id, midpoint[0], midpoint[1], midpoint[2], mvec[0], mvec[1], mvec[1], bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]])
                     midpoints[est_id] = midpoint
@@ -220,19 +242,17 @@ def main():
                 prev_bboxes = bboxes
                 prev_clusters = clusters
                     
-            
-        # o3d.visualization.draw_geometries([filtered_pcd])
         vis.clear_geometries()
         for cloud in cluster_pcds:
             vis.add_geometry(cloud)
         for bbox in cluster_bboxes:
             vis.add_geometry(bbox)
         vis.poll_events()
-        vis.update_renderer()
         
-        # Clean up point clouds once they're rendered
-        cluster_pcds.clear()
-        cluster_bboxes.clear()
+        # Time how long each frame took
+        curr_time = time.time()
+        print(f"\t\t{curr_time-prev_time} seconds elapsed")
+        prev_time = curr_time
     
 if __name__ == '__main__':
     main()
